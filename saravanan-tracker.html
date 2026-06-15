@@ -90,6 +90,7 @@
     <button class="nav-btn" onclick="showView('topics',this,'student-nav')">📖 Topics</button>
     <button class="nav-btn" onclick="showView('doubts',this,'student-nav')">❓ Doubts</button>
     <button class="nav-btn" onclick="showView('sdash',this,'student-nav')">📊 Dashboard</button>
+    <button class="nav-btn" onclick="showView('bin',this,'student-nav')">🗑️ Deleted</button>
   </div>
 
   <div id="view-today" class="view active"><div id="today-content"></div></div>
@@ -183,6 +184,7 @@
   </div>
 
   <div id="view-sdash" class="view"><div id="sdash-content"></div></div>
+  <div id="view-bin" class="view"><div id="bin-content"></div></div>
 
   <hr class="mentor-sep"><span class="mentor-sep-label">👁 Mentor view — Kathir (read-only)</span>
 
@@ -200,12 +202,14 @@
       <button class="nav-btn" onclick="showView('msubjects',this,'mentor-nav')">📚 Subjects</button>
       <button class="nav-btn" onclick="showView('mdoubts',this,'mentor-nav')">❓ Doubts</button>
       <button class="nav-btn" onclick="showView('mpending',this,'mentor-nav')">⏳ Pending</button>
+      <button class="nav-btn" onclick="showView('mbin',this,'mentor-nav')">🗑️ Deleted</button>
     </div>
     <div id="view-overview" class="view active"><div id="overview-content"></div></div>
     <div id="view-mweekly" class="view"><div id="mweekly-content"></div></div>
     <div id="view-msubjects" class="view"><div id="msubjects-content"></div></div>
     <div id="view-mdoubts" class="view"><div id="mdoubts-content"></div></div>
     <div id="view-mpending" class="view"><div id="mpending-content"></div></div>
+    <div id="view-mbin" class="view"><div id="mbin-content"></div></div>
   </div>
 
 </div>
@@ -229,7 +233,7 @@ const BOARD_SUBJ=['English','Computer Science','Tamil'];
 const STATUS_LABELS={introduced:'Introduced',practiced:'Practiced',revision:'Revision ready',mastered:'Mastered'};
 const STATUS_COLORS={mastered:'#1D9E75',revision:'#7F77DD',practiced:'#BA7517',introduced:'#378ADD'};
 const DOUBT_LABELS={open:'Open',asked:'Asked in class',clarified:'Clarified'};
-let data={sessions:[],doubts:[]};
+let data={sessions:[],doubts:[],deletedSessions:[],deletedDoubts:[]};
 let saving=false;
 let pendingConfirm=null;
 
@@ -244,15 +248,17 @@ async function loadData(){
     const r=await fetch(`${BIN_URL}/latest`,{headers:{'X-Access-Key':API_KEY}});
     if(!r.ok)throw new Error(r.status);
     const j=await r.json();
-    data=j.record||{sessions:[],doubts:[]};
+    data=j.record||{sessions:[],doubts:[],deletedSessions:[],deletedDoubts:[]};
     if(!data.sessions)data.sessions=[];
     if(!data.doubts)data.doubts=[];
+    if(!data.deletedSessions)data.deletedSessions=[];
+    if(!data.deletedDoubts)data.deletedDoubts=[];
     localStorage.setItem('sar_jee_bk',JSON.stringify(data));
     setSync('ok','Synced · '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}));
     renderAll();
   }catch(e){
     setSync('error','Sync error — using local data');
-    try{const l=localStorage.getItem('sar_jee_bk');if(l){data=JSON.parse(l);renderAll();}}catch(x){}
+    try{const l=localStorage.getItem('sar_jee_bk');if(l){data=JSON.parse(l);if(!data.deletedSessions)data.deletedSessions=[];if(!data.deletedDoubts)data.deletedDoubts=[];renderAll();}}catch(x){}
   }
 }
 
@@ -272,11 +278,12 @@ function renderAll(){
   renderToday();renderHistory();
   renderTopics(document.querySelector('#topic-filter-row .filter-btn.active')?.textContent.trim()||'all');
   renderDoubts(document.querySelector('#doubt-filter-row .filter-btn.active')?.textContent.trim()||'all');
-  renderSDash();renderOverview();renderMWeekly();renderMSubjects();renderMDoubts();renderMPending();
+  renderSDash();renderBin();
+  renderOverview();renderMWeekly();renderMSubjects();renderMDoubts();renderMPending();renderMBin();
 }
 
-const STUDENT_VIEWS=['today','log','history','topics','doubts','sdash'];
-const MENTOR_VIEWS=['overview','mweekly','msubjects','mdoubts','mpending'];
+const STUDENT_VIEWS=['today','log','history','topics','doubts','sdash','bin'];
+const MENTOR_VIEWS=['overview','mweekly','msubjects','mdoubts','mpending','mbin'];
 
 function showView(v,btn,navId){
   const views=navId==='student-nav'?STUDENT_VIEWS:MENTOR_VIEWS;
@@ -301,10 +308,35 @@ function confirmAction(){document.getElementById('confirm-overlay').style.displa
 function cancelConfirm(){document.getElementById('confirm-overlay').style.display='none';pendingConfirm=null;}
 
 function deleteSession(id){
-  showConfirm('Delete this session? This cannot be undone.',()=>{
+  showConfirm('Delete this session? It will move to the Deleted tab.',()=>{
+    const s=data.sessions.find(x=>x.id===id);
+    if(s){s.deletedAt=new Date().toISOString();data.deletedSessions.push(s);}
     data.sessions=data.sessions.filter(s=>s.id!==id);
     saveData();renderAll();
   });
+}
+
+function deleteDoubt(id){
+  showConfirm('Delete this doubt? It will move to the Deleted tab.',()=>{
+    const d=data.doubts.find(x=>x.id==id);
+    if(d){d.deletedAt=new Date().toISOString();data.deletedDoubts.push(d);}
+    data.doubts=data.doubts.filter(x=>x.id!=id);
+    saveData();renderAll();
+  });
+}
+
+function restoreSession(id){
+  const s=data.deletedSessions.find(x=>x.id===id);
+  if(s){delete s.deletedAt;data.sessions.push(s);}
+  data.deletedSessions=data.deletedSessions.filter(x=>x.id!==id);
+  saveData();renderAll();
+}
+
+function restoreDoubt(id){
+  const d=data.deletedDoubts.find(x=>x.id==id);
+  if(d){delete d.deletedAt;data.doubts.push(d);}
+  data.deletedDoubts=data.deletedDoubts.filter(x=>x.id!=id);
+  saveData();renderAll();
 }
 
 function renderToday(){
@@ -514,6 +546,7 @@ function renderDoubts(f){
             <option value="asked" ${d.status==='asked'?'selected':''}>Asked</option>
             <option value="clarified" ${d.status==='clarified'?'selected':''}>Clarified</option>
           </select>
+          <button class="btn btn-sm btn-danger" onclick="deleteDoubt(${d.id})">🗑️ Delete</button>
         </div>
       </div>
     </div>`;
@@ -729,6 +762,91 @@ function renderMPending(){
     });
     html+=`</div>`;
   });
+  el.innerHTML=html;
+}
+
+function renderBin(){
+  const el=document.getElementById('bin-content');
+  const ds=[...data.deletedSessions].sort((a,b)=>b.deletedAt?.localeCompare(a.deletedAt||'')||0);
+  const dd=[...data.deletedDoubts].sort((a,b)=>b.deletedAt?.localeCompare(a.deletedAt||'')||0);
+  if(!ds.length&&!dd.length){el.innerHTML=`<div class="empty">🗑️ Nothing deleted yet.</div>`;return;}
+  let html='';
+  if(ds.length){
+    html+=`<h3 style="margin-bottom:0.75rem">Deleted sessions <span style="font-size:12px;color:#666;font-weight:400">${ds.length} items</span></h3>`;
+    ds.forEach(s=>{
+      const delDate=s.deletedAt?new Date(s.deletedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Unknown';
+      html+=`<div class="card" style="margin-bottom:0.5rem;border-color:#3a1a1a">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px;margin-bottom:6px">
+          <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+            <span class="badge b-${s.type||'jee'}">${(s.type||'jee').toUpperCase()}</span>
+            <span style="font-weight:600;font-size:13px">${s.subject}</span>
+            <span style="color:#888;font-size:13px">· ${esc(s.topic)}</span>
+          </div>
+          <span style="font-size:11px;color:#555">Deleted ${delDate}</span>
+        </div>
+        ${s.plan?`<div style="font-size:12px;color:#666;margin-bottom:2px"><span style="color:#444">Plan: </span>${esc(s.plan)}</div>`:''}
+        ${s.actual?`<div style="font-size:12px;color:#666;margin-bottom:2px"><span style="color:#444">Done: </span>${esc(s.actual)}</div>`:''}
+        <div style="margin-top:6px">
+          <button class="btn btn-sm" onclick="restoreSession(${s.id})">↩️ Restore</button>
+        </div>
+      </div>`;
+    });
+  }
+  if(dd.length){
+    html+=`<h3 style="margin:1rem 0 0.75rem">Deleted doubts <span style="font-size:12px;color:#666;font-weight:400">${dd.length} items</span></h3>`;
+    dd.forEach(d=>{
+      const delDate=d.deletedAt?new Date(d.deletedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Unknown';
+      html+=`<div class="card" style="margin-bottom:0.5rem;border-color:#3a1a1a">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+          <div><div style="font-size:13px;color:#888">${esc(d.text)}</div>
+            <div style="margin-top:4px"><span class="tag">${d.subject}</span><span class="tag">${esc(d.topic)}</span></div>
+            <div style="font-size:11px;color:#555;margin-top:3px">Deleted ${delDate}</div>
+          </div>
+          <button class="btn btn-sm" onclick="restoreDoubt(${d.id})">↩️ Restore</button>
+        </div>
+      </div>`;
+    });
+  }
+  el.innerHTML=html;
+}
+
+function renderMBin(){
+  const el=document.getElementById('mbin-content');
+  const ds=[...data.deletedSessions].sort((a,b)=>b.deletedAt?.localeCompare(a.deletedAt||'')||0);
+  const dd=[...data.deletedDoubts].sort((a,b)=>b.deletedAt?.localeCompare(a.deletedAt||'')||0);
+  if(!ds.length&&!dd.length){el.innerHTML=`<div class="empty">🗑️ Nothing deleted yet.</div>`;return;}
+  let html=`<div class="stat-grid">
+    <div class="stat"><div class="stat-num">${ds.length}</div><div class="stat-label">Deleted sessions</div></div>
+    <div class="stat"><div class="stat-num">${dd.length}</div><div class="stat-label">Deleted doubts</div></div>
+  </div>`;
+  if(ds.length){
+    html+=`<div class="card"><h3>Deleted sessions</h3>`;
+    ds.forEach(s=>{
+      const delDate=s.deletedAt?new Date(s.deletedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Unknown';
+      html+=`<div class="entry-row"><div>
+        <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+          <span class="badge b-${s.type||'jee'}">${(s.type||'jee').toUpperCase()}</span>
+          <span style="font-size:13px;font-weight:600">${s.subject}</span>
+          <span style="font-size:13px;color:#888">· ${esc(s.topic)}</span>
+        </div>
+        <div style="font-size:11px;color:#555;margin-top:3px">${fmtDate(s.date)} · Deleted ${delDate}</div>
+        ${s.plan?`<div style="font-size:12px;color:#666;margin-top:2px">Plan: ${esc(s.plan)}</div>`:''}
+      </div><span style="font-size:11px;color:#555;white-space:nowrap">${s.session}</span></div>`;
+    });
+    html+=`</div>`;
+  }
+  if(dd.length){
+    html+=`<div class="card"><h3>Deleted doubts</h3>`;
+    dd.forEach(d=>{
+      const delDate=d.deletedAt?new Date(d.deletedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Unknown';
+      html+=`<div class="entry-row"><div>
+        <div style="font-size:13px;color:#888">${esc(d.text)}</div>
+        <div style="margin-top:3px"><span class="tag">${d.subject}</span><span class="tag">${esc(d.topic)}</span></div>
+        <div style="font-size:11px;color:#555;margin-top:2px">Deleted ${delDate}</div>
+      </div></div>`;
+    });
+    html+=`</div>`;
+  }
   el.innerHTML=html;
 }
 
